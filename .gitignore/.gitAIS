@@ -1,0 +1,593 @@
+#include <iostream>
+#include <sstream>
+#include <fstream>
+#include <numeric>
+#include <vector>
+#include <ctime>
+#include <string>
+#include <string.h>
+#include <bitset>
+#include <cmath>
+#include <stdlib.h>
+
+using namespace std;
+
+// #####################################################
+// #                                                   #
+// #     Defining some structure for Message Types     #
+// #                                                   #
+// #####################################################
+
+struct NMEA1{									// MsgType 1,2 and 3
+char 			repeat;
+unsigned int	MMSI;							//
+string			Country;						//
+char			NavStatus;
+double			Spd;							//
+long			longtitude;						//
+string			lastlong;						//
+long			latitude;						//
+string			lastlat;						//
+double			GHeading;						// Course Over Ground
+double			THeading;						// True Heading
+} MsgId_1;
+
+struct NMEA5{									// Complementory Message for formers
+
+char 			repeat;
+unsigned long 	MMSI;							//
+string			CallSign;						//
+string			Name;
+string			ShipType;						//
+unsigned long	ETA;							//
+string			Destination;					//
+} MsgId_5;
+
+struct NMEA9{									// SAR A/C Message Format...
+unsigned long	MMSI;							//
+int				altitude;						//
+int				Spd;							//
+long			longtitude;						//
+long			latitude;						//
+int				Heading;						//
+}MsgId_9;
+
+// #####################################################
+// #                                                   #
+// #               Global Declerations                 #
+// #                                                   #
+// #####################################################
+
+vector<string> subArray;		// -> Array for divided NMEA Messages (Seperator is `,`)
+string ln="";						// -> NMEA Sentence is assigned to that variable
+int len=0;						// -> NMEA Sentence length. Once and for all...
+bitset<168>t168;				// -> Total bitset container for 168 Bit Messages
+bitset<6> byt;					// -> Single char bit container for array assignment
+int bitCnt=0;						// -> Counter for Total Bit Count
+char NSEW;						// -> North/South - East-West Shit
+string TalkerID="";				// -> We may not need that... May be for decision Point...
+int MsgType=0;					// -> Decision mile stone for Message Processing...
+
+
+// #####################################################
+// #                                                   #
+// #   Need some shit to convert thoses Hex Outputs    #
+// #                                                   #
+// #####################################################
+
+/*int HexToDec(auto x){
+
+    stringstream ss;
+    ss << dec << x;
+    ss >> x;
+    return x;
+}*/
+
+int getHex(string hexstr) {
+    return (int)strtol(hexstr.c_str(), 0, 16);
+}
+
+// #####################################################
+// #                                                   #
+// #   Will help to assign needed Bits to variables    #
+// #                                                   #
+// #####################################################
+
+unsigned int get6BitVal(int cntr, int NrOfBits){ //Will return bit assinments
+	int result=0;
+	for (int j = 0; j<=NrOfBits ; j++)
+	{
+		result *= 2;
+		result += t168[cntr];
+		cntr--;
+	}
+	return result;
+}
+
+// #####################################################
+// #                                                   #
+// #   Esase oglan burda! Asıl is burdan sonra...      #
+// #                                                   #
+// #####################################################
+
+int GetTheShitDone(string line){
+//Recieved message will be divided into vector parts to be processed...
+len = line.length();
+																// -> ############################################################################# <-
+    for (int j = 0, k = 0; j < len; j++) {						//
+        if (line[j] == ',') {									// Field 1 -> !AIVDM -> Identifies the Package Type
+            string ch = line.substr(k, j - k);					// Field 2 -> Fragment Count of the message since it may take longer then 28 char
+            k = j+1;											// Field 3 -> Fragment Number of the Message
+            subArray.push_back(ch);								// Field 4 -> Sequence Nr for multi part sentences
+        }														// Field 5 -> Channel Identifier A or B
+        if (j == len - 1) {										// Field 6 -> Payload...
+            string ch = line.substr(k, j - k+1);				// Field 7 -> Bit requirements to pad the payload
+            subArray.push_back(ch);								// Field 8 -> Checksum recieved with the message for quality check.
+        }														//
+    }															// -> ############################################################################# <-
+
+
+// #####################################################
+// #                                                   #
+// # Dividing is Complete... Procceding with CHECKSUM  #
+// #                                                   #
+// #####################################################
+
+
+istringstream n(ln);
+string sentence;
+string received_checksum;
+
+getline(n, sentence, '*');
+getline(n, received_checksum);
+
+char check = accumulate(sentence.begin()+1, sentence.end(), 0,			// -> ########  This shit needs modifying ######## <-
+        [](char sum, char ch) { return sum ^ ch; });
+
+    cout << "received checksum: " << received_checksum<<endl;			// -> ############################################ <-
+    cout << "computed checksum: " << hex << (int)check << endl;			// -> #  Just a Test Line! Can be removed Later  # <-
+																		// -> ############################################ <-
+stringstream ss;
+ss << hex << (int)check;
+string res = ss.str();
+if (res == received_checksum)
+cout << "Message Integrity check  [ PASSED ]" << endl;					// -> ####################################################### <-
+else																	// -> # Instead of Fancy Msg, we will BREAK the Function!!! # <-
+cout << "Message Integrity check  [ FAILED ]" << endl;					// -> ####################################################### <-
+
+// #####################################################
+// #                                                   #
+// #  If CheckSum succeeds follow the 'White Rabbit!'  #
+// #                                                   #
+// #  First thing First : Binarize the entire message  #
+// #                                                   #
+// #####################################################
+
+string txt = subArray[5];							//
+bitCnt=167;											//
+for(unsigned i = 0; i < txt.length(); i++)			//
+   {												//
+	    int Decml =(int)txt[i] -48;					// 6 bit extraction
+	   if ( Decml > 40)								//
+	   {											// Decml is the final result of
+		   Decml-=8;								// 6 bit version of chars in msg
+	   }											//
+
+byt =bitset<6>(Decml);								//
+	for (int k = 5; k>=0;k--)						//
+	{												// Assigning each bit to Array "t168"
+		t168[bitCnt]=byt[k];						//
+		bitCnt--;}									//
+   }												//
+
+// #####################################################
+// #                                                   #
+// #  At this point "t168" has all the bits we need  #
+// #                                                   #
+// #  Procceding with Talker ID (Kind Of Message Type) #
+// #                                                   #
+// #####################################################
+
+// ******************************************
+// This Portion may not be needed actually...
+// ******************************************
+
+	TalkerID = subArray[0].substr(1,2);
+if (TalkerID == "AB") TalkerID="NMEA 4.0 Base AIS station";
+if (TalkerID == "AD") TalkerID="NMEA 4.0 Dependent AIS station";
+if (TalkerID == "AI") TalkerID="Mobile AIS station";
+if (TalkerID == "AN") TalkerID="NMEA 4.0 Aid to Navigation AIS station";
+if (TalkerID == "AR") TalkerID="NMEA 4.0 AIS Recieving station";
+if (TalkerID == "AS") TalkerID="NMEA 4.0 Limited Base station";
+if (TalkerID == "AT") TalkerID="NMEA 4.0 AIS Transmitting station";
+if (TalkerID == "AX") TalkerID="NMEA 4.0 Repeater AIS station";
+if (TalkerID == "BS") TalkerID="Base AIS station";
+if (TalkerID == "SA") TalkerID="Physical Shore AIS station";
+
+// #####################################################
+// #                                                   #
+// #    Decision Point for Message Type Proccessing    #
+// #                                                   #
+// #    First we will get the Message Type Number      #
+// #                                                   #
+// #####################################################
+
+int cntr=167;
+for (int j = 0; j<=5 ; j++) {						//Message Type Information Extraction...
+	MsgType *= 2;									// We will decide our direction due to result of that snippet!
+	MsgType += t168[cntr];
+	cntr--;
+}
+
+
+// #####################################################
+// #                                                   #
+// #      Parsing the First Message Type (1-2-3)       #
+// #                                                   #
+// #####################################################
+
+MsgId_1.MMSI 		=  get6BitVal(159,29);
+MsgId_1.Country		=  get6BitVal(159,17);					//
+//MsgId_1.NavStatus	=  get6BitVal(129,3);					//
+MsgId_1.Spd			= (get6BitVal(117,9))/10;				//
+MsgId_1.longtitude	=  get6BitVal(106,27);					//
+MsgId_1.latitude	=  get6BitVal(78,26);					//
+MsgId_1.GHeading	= (get6BitVal(51,11))/10;				// Course Over Ground
+MsgId_1.THeading	=  get6BitVal(39,8);
+
+// #####################################################
+// #                                                   #
+// #       Parsing the First Message [ D O N E ]       #
+// #                                                   #
+// #     Convert Coordinates to something readable     #
+// #                                                   #
+// #####################################################
+
+// #####################################################
+// #                                                   #
+// #            Convert the Longtitude Shit            #
+// #                                                   #
+// #####################################################
+
+    if( MsgId_1.longtitude & 0x8000000 )
+    {
+        MsgId_1.longtitude = 0x10000000 - MsgId_1.longtitude;     //Converted to Signed Integer
+        MsgId_1.longtitude *= -1;
+    }
+
+    double long_ddd = (int) (MsgId_1.longtitude / 600000);
+         long_ddd += (double) (MsgId_1.longtitude - (long_ddd * 600000)) / 600000.0;
+		 long_ddd = (short) (MsgId_1.longtitude / 600000);
+    double long_min = abs((MsgId_1.longtitude - (long_ddd * 600000))) / 10000.0;
+char v;
+	if (long_ddd>0)
+		v='E';
+	else
+		v='W';
+
+
+ostringstream longfinal;
+longfinal << long_ddd << long_min << v;
+MsgId_1.lastlong = longfinal.str();
+
+// #####################################################
+// #                                                   #
+// #            Now it is time for Latitude            #
+// #                                                   #
+// #####################################################
+
+    if( MsgId_1.latitude & 0x4000000 )				//Converted to Signed Integer
+    {
+        MsgId_1.latitude = 0x8000000 - MsgId_1.latitude;
+        MsgId_1.latitude *= -1;
+    }
+// Lets start converting to Degrees...
+
+   double lat_dd = (int) (MsgId_1.latitude / 600000);
+		lat_dd += (double) (MsgId_1.latitude - (lat_dd * 600000)) / 600000.0;
+
+    /* Convert 1/10000 minute Latitude to DD MM.MMMM format */
+		 lat_dd = (short) (MsgId_1.latitude / 600000);
+    double lat_min = abs((MsgId_1.latitude - (lat_dd * 600000))) / 10000.0;
+	if (lat_dd>0)
+		v='N';
+	else
+		v='S';
+
+ostringstream latfinal;
+latfinal << lat_dd << lat_min << v;
+MsgId_1.lastlat = latfinal.str();
+
+// #####################################################
+// #                                                   #
+// #         Get The Country Code From MMSI            #
+// #                                                   #
+// #####################################################
+cout << endl << endl;
+double CC = MsgId_1.MMSI/1000000;
+
+{  //Country Names extraction....
+if (CC == 500 	)	MsgId_1.Country	=	"Adelie Land"; else
+if (CC == 401	)	MsgId_1.Country	=	"Afghanistan" ;else
+if (CC == 303	)	MsgId_1.Country	=	"Alaska";else
+if (CC == 201	)	MsgId_1.Country	=	"Albania";else
+if (CC == 605	)	MsgId_1.Country	=	"Algeria" ;else
+if (CC == 559	)	MsgId_1.Country	=	"American Samoa" ;else
+if (CC == 202	)	MsgId_1.Country	=	"Andorra" ;else
+if (CC == 603	)	MsgId_1.Country	=	"Angola";else
+if (CC == 301	)	MsgId_1.Country	=	"Anguilla" ;else
+if (CC == 304 || CC== 305 	)	MsgId_1.Country	=	"Antigua and Barbuda" ;else
+if (CC == 701	)	MsgId_1.Country	=	"Argentine Republic";else
+if (CC == 216	)	MsgId_1.Country	=	"Armenia";else
+if (CC == 307	)	MsgId_1.Country	=	"Aruba" ;else
+if (CC == 608	)	MsgId_1.Country	=	"Ascension Island";else
+if (CC == 503	)	MsgId_1.Country	=	"Australia" ;else
+if (CC == 203	)	MsgId_1.Country	=	"Austria" ;else
+if (CC == 423	)	MsgId_1.Country	=	"Azerbaijani Republic" ;else
+if (CC == 204	)	MsgId_1.Country	=	"Azores" ;else
+if (CC == 308 || CC==  309 || CC== 311)	MsgId_1.Country	=	"Bahamas"  ;else
+if (CC == 408	)	MsgId_1.Country	=	"Bahrain"  ;else
+if (CC == 405	)	MsgId_1.Country	=	"Bangladesh";else
+if (CC == 314	)	MsgId_1.Country	=	"Barbados" ;else
+if (CC == 206	)	MsgId_1.Country	=	"Belarus";else
+if (CC == 205	)	MsgId_1.Country	=	"Belgium" ;else
+if (CC == 312	)	MsgId_1.Country	=	"Belize" ;else
+if (CC == 610	)	MsgId_1.Country	=	"Benin";else
+if (CC == 310	)	MsgId_1.Country	=	"Bermuda" ;else
+if (CC == 410	)	MsgId_1.Country	=	"Bhutan" ;else
+if (CC == 720	)	MsgId_1.Country	=	"Bolivia";else
+if (CC == 306	)	MsgId_1.Country	=	"Bonaire";else
+if (CC == 478	)	MsgId_1.Country	=	"Bosnia" ;else
+if (CC == 611	)	MsgId_1.Country	=	"Botswana" ;else
+if (CC == 710	)	MsgId_1.Country	=	"Brazil";else
+if (CC == 378	)	MsgId_1.Country	=	"British Virgin Islands" ;else
+if (CC == 508	)	MsgId_1.Country	=	"Brunei Darussalam" ;else
+if (CC == 207	)	MsgId_1.Country	=	"Bulgaria";else
+if (CC == 633	)	MsgId_1.Country	=	"Burkina Faso" ;else
+if (CC == 609	)	MsgId_1.Country	=	"Burundi" ;else
+if (CC == 514 || CC== 515 	)	MsgId_1.Country	=	"Cambodia";else
+if (CC == 613	)	MsgId_1.Country	=	"Cameroon" ;else
+if (CC == 316	)	MsgId_1.Country	=	"Canada" ;else
+if (CC == 617	)	MsgId_1.Country	=	"Cape Verde"  ;else
+if (CC == 319	)	MsgId_1.Country	=	"Cayman Islands" ;else
+if (CC == 612	)	MsgId_1.Country	=	"Central African Republic" ;else
+if (CC == 670	)	MsgId_1.Country	=	"Chad"  ;else
+if (CC == 725	)	MsgId_1.Country	=	"Chile" ;else
+if (CC == 412 || CC== 413 || CC== 414 	)	MsgId_1.Country	=	"China";else
+if (CC == 516	)	MsgId_1.Country	=	"Christmas Island" ;else
+if (CC == 523	)	MsgId_1.Country	=	"Cocos" ;else
+if (CC == 730	)	MsgId_1.Country	=	"Colombia" ;else
+if (CC == 616 || CC== 620 	)	MsgId_1.Country	=	"Comoros" ;else
+if (CC == 615	)	MsgId_1.Country	=	"Congo"  ;else
+if (CC == 518	)	MsgId_1.Country	=	"Cook Islands" ;else
+if (CC == 321	)	MsgId_1.Country	=	"Costa Rica" ;else
+if (CC == 619	)	MsgId_1.Country	=	"Côte d'Ivoire" ;else
+if (CC == 238	)	MsgId_1.Country	=	"Croatia" ;else
+if (CC == 618	)	MsgId_1.Country	=	"Crozet Archipelago" ;else
+if (CC == 323	)	MsgId_1.Country	=	"Cuba" ;else
+if (CC == 306	)	MsgId_1.Country	=	"Curaçao" ;else
+if (CC == 209 || CC == 210 || CC == 212 	)	MsgId_1.Country	=	"Cyprus" ;else
+if (CC == 270	)	MsgId_1.Country	=	"Czech"  ;else
+if (CC == 445	)	MsgId_1.Country	=	"Korea" ;else
+if (CC == 676	)	MsgId_1.Country	=	"Congo" ;else
+if (CC == 219 || CC == 220 	)	MsgId_1.Country	=	"Denmark" ;else
+if (CC == 621	)	MsgId_1.Country	=	"Djibouti";else
+if (CC == 325	)	MsgId_1.Country	=	"Dominica"  ;else
+if (CC == 327	)	MsgId_1.Country	=	"Dominican"  ;else
+if (CC == 735	)	MsgId_1.Country	=	"Ecuador" ;else
+if (CC == 622	)	MsgId_1.Country	=	"Egypt"  ;else
+if (CC == 359	)	MsgId_1.Country	=	"El Salvador"  ;else
+if (CC == 631	)	MsgId_1.Country	=	"Equatorial Guinea" ;else
+if (CC == 625	)	MsgId_1.Country	=	"Eritrea" ;else
+if (CC == 276	)	MsgId_1.Country	=	"Estonia";else
+if (CC == 624	)	MsgId_1.Country	=	"Ethiopia" ;else
+if (CC == 740	)	MsgId_1.Country	=	"Falkland Islands" ;else
+if (CC == 231	)	MsgId_1.Country	=	"Faroe Islands" ;else
+if (CC == 520	)	MsgId_1.Country	=	"Fiji" ;else
+if (CC == 230	)	MsgId_1.Country	=	"Finland" ;else
+if (CC == 226 || CC == 227 || CC == 228 	)	MsgId_1.Country	=	"France" ;else
+if (CC == 546	)	MsgId_1.Country	=	"French Polynesia" ;else
+if (CC == 626	)	MsgId_1.Country	=	"Gabonese"  ;else
+if (CC == 629	)	MsgId_1.Country	=	"Gambia" ;else
+if (CC == 213	)	MsgId_1.Country	=	"Georgia" ;else
+if (CC == 211 || CC== 218) MsgId_1.Country	=	"Germany";else
+if (CC == 627	)	MsgId_1.Country	=	"Ghana" ;else
+if (CC == 236	)	MsgId_1.Country	=	"Gibraltar" ;else
+if (CC == 237|| CC== 239|| CC== 240|| CC== 241 	)	MsgId_1.Country	=	"Greece" ;else
+if (CC == 331	)	MsgId_1.Country	=	"Greenland" ;else
+if (CC == 330	)	MsgId_1.Country	=	"Grenada" ;else
+if (CC == 329	)	MsgId_1.Country	=	"Guadeloupe";else
+if (CC == 332	)	MsgId_1.Country	=	"Guatemala";else
+if (CC == 745	)	MsgId_1.Country	=	"Guiana" ;else
+if (CC == 632	)	MsgId_1.Country	=	"Guinea";else
+if (CC == 630	)	MsgId_1.Country	=	"Guinea";else
+if (CC == 750	)	MsgId_1.Country	=	"Guyana" ;else
+if (CC == 336	)	MsgId_1.Country	=	"Haiti"  ;else
+if (CC == 334	)	MsgId_1.Country	=	"Honduras";else
+if (CC == 477	)	MsgId_1.Country	=	"Hong Kong" ;else
+if (CC == 243	)	MsgId_1.Country	=	"Hungary"  ;else
+if (CC == 251	)	MsgId_1.Country	=	"Iceland" ;else
+if (CC == 419	)	MsgId_1.Country	=	"India";else
+if (CC == 525	)	MsgId_1.Country	=	"Indonesia" ;else
+if (CC == 422	)	MsgId_1.Country	=	"Iran" ;else
+if (CC == 425	)	MsgId_1.Country	=	"Iraq";else
+if (CC == 250	)	MsgId_1.Country	=	"Ireland" ;else
+if (CC == 428	)	MsgId_1.Country	=	"Israel"  ;else
+if (CC == 247	)	MsgId_1.Country	=	"Italy" ;else
+if (CC == 339	)	MsgId_1.Country	=	"Jamaica" ;else
+if (CC == 431|| CC== 432 	)	MsgId_1.Country	=	"Japan" ;else
+if (CC == 438	)	MsgId_1.Country	=	"Jordan";else
+if (CC == 436	)	MsgId_1.Country	=	"Kazakhstan";else
+if (CC == 634	)	MsgId_1.Country	=	"Kenya";else
+if (CC == 635	)	MsgId_1.Country	=	"Kerguelen";else
+if (CC == 529	)	MsgId_1.Country	=	"Kiribati";else
+if (CC == 440|| CC== 441 	)	MsgId_1.Country	=	"Korea";else
+if (CC == 447	)	MsgId_1.Country	=	"Kuwait" ;else
+if (CC == 451	)	MsgId_1.Country	=	"Kyrgyzstan" ;else
+if (CC == 531	)	MsgId_1.Country	=	"Lao People";else
+if (CC == 275	)	MsgId_1.Country	=	"Latvia";else
+if (CC == 450	)	MsgId_1.Country	=	"Lebanon" ;else
+if (CC == 644	)	MsgId_1.Country	=	"Lesotho";else
+if (CC == 636|| CC== 637 	)	MsgId_1.Country	=	"Liberia";else
+if (CC == 642	)	MsgId_1.Country	=	"Libya" ;else
+if (CC == 252	)	MsgId_1.Country	=	"Liechtenstein" ;else
+if (CC == 277	)	MsgId_1.Country	=	"Lithuania" ;else
+if (CC == 253	)	MsgId_1.Country	=	"Luxembourg" ;else
+if (CC == 453	)	MsgId_1.Country	=	"Macao" ;else
+if (CC == 274	)	MsgId_1.Country	=	"Macedonia" ;else
+if (CC == 647	)	MsgId_1.Country	=	"Madagascar";else
+if (CC == 255	)	MsgId_1.Country	=	"Madeira";else
+if (CC == 655	)	MsgId_1.Country	=	"Malawi" ;else
+if (CC == 533	)	MsgId_1.Country	=	"Malaysia" ;else
+if (CC == 455	)	MsgId_1.Country	=	"Maldives" ;else
+if (CC == 649	)	MsgId_1.Country	=	"Mali" ;else
+if (CC == 215|| CC== 229|| CC== 248|| CC== 249|| CC== 256 	)	MsgId_1.Country	=	"Malta" ;else
+if (CC == 538	)	MsgId_1.Country	=	"Marshall";else
+if (CC == 347	)	MsgId_1.Country	=	"Martinique" ;else
+if (CC == 654	)	MsgId_1.Country	=	"Mauritania"  ;else
+if (CC == 645	)	MsgId_1.Country	=	"Mauritius" ;else
+if (CC == 345	)	MsgId_1.Country	=	"Mexico" ;else
+if (CC == 510	)	MsgId_1.Country	=	"Micronesia";else
+if (CC == 214	)	MsgId_1.Country	=	"Moldova";else
+if (CC == 254	)	MsgId_1.Country	=	"Monaco";else
+if (CC == 457	)	MsgId_1.Country	=	"Mongolia" ;else
+if (CC == 262	)	MsgId_1.Country	=	"Montenegro";else
+if (CC == 348	)	MsgId_1.Country	=	"Montserrat" ;else
+if (CC == 242	)	MsgId_1.Country	=	"Morocco";else
+if (CC == 650	)	MsgId_1.Country	=	"Mozambique";else
+if (CC == 506	)	MsgId_1.Country	=	"Myanmar" ;else
+if (CC == 659	)	MsgId_1.Country	=	"Namibia" ;else
+if (CC == 544	)	MsgId_1.Country	=	"Nauru" ;else
+if (CC == 459	)	MsgId_1.Country	=	"Nepal" ;else
+if (CC == 244|| CC== 245|| CC== 246 	)	MsgId_1.Country	=	"Netherlands" ;else
+if (CC == 540	)	MsgId_1.Country	=	"New Caledonia" ;else
+if (CC == 512	)	MsgId_1.Country	=	"New Zealand" ;else
+if (CC == 350	)	MsgId_1.Country	=	"Nicaragua" ;else
+if (CC == 656	)	MsgId_1.Country	=	"Niger" ;else
+if (CC == 657	)	MsgId_1.Country	=	"Nigeria" ;else
+if (CC == 542	)	MsgId_1.Country	=	"Niue" ;else
+if (CC == 536	)	MsgId_1.Country	=	"Northern Mariana";else
+if (CC == 257|| CC== 258|| CC== 259 	)	MsgId_1.Country	=	"Norway" ;else
+if (CC == 461	)	MsgId_1.Country	=	"Oman"  ;else
+if (CC == 463	)	MsgId_1.Country	=	"Pakistan"  ;else
+if (CC == 511	)	MsgId_1.Country	=	"Palau" ;else
+if (CC == 443	)	MsgId_1.Country	=	"Palestinian";else
+if (CC == 351|| CC== 352|| CC== 353|| CC== 354|| CC== 355|| CC== 356|| CC== 357|| CC== 370|| CC== 371|| CC== 372|| CC== 373|| CC== 374 	)	MsgId_1.Country	=	"Panama";else
+if (CC == 553	)	MsgId_1.Country	=	"Papua New Guinea" ;else
+if (CC == 755	)	MsgId_1.Country	=	"Paraguay" ;else
+if (CC == 760	)	MsgId_1.Country	=	"Peru" ;else
+if (CC == 548	)	MsgId_1.Country	=	"Philippines" ;else
+if (CC == 555	)	MsgId_1.Country	=	"Pitcairn Island" ;else
+if (CC == 261	)	MsgId_1.Country	=	"Poland"  ;else
+if (CC == 263	)	MsgId_1.Country	=	"Portugal" ;else
+if (CC == 358	)	MsgId_1.Country	=	"Puerto Rico" ;else
+if (CC == 466	)	MsgId_1.Country	=	"Qatar" ;else
+if (CC == 660	)	MsgId_1.Country	=	"Réunion" ;else
+if (CC == 264	)	MsgId_1.Country	=	"Romania" ;else
+if (CC == 273	)	MsgId_1.Country	=	"Russian Federation" ;else
+if (CC == 661	)	MsgId_1.Country	=	"Rwandese" ;else
+if (CC == 665	)	MsgId_1.Country	=	"Saint Helena" ;else
+if (CC == 341	)	MsgId_1.Country	=	"Saint Kitts" ;else
+if (CC == 343	)	MsgId_1.Country	=	"Saint Lucia" ;else
+if (CC == 607	)	MsgId_1.Country	=	"Saint Paul" ;else
+if (CC == 361	)	MsgId_1.Country	=	"Saint Pierre" ;else
+if (CC == 375|| CC== 376|| CC== 377 	)	MsgId_1.Country	=	"Saint Vincent";else
+if (CC == 561	)	MsgId_1.Country	=	"Samoa"  ;else
+if (CC == 268	)	MsgId_1.Country	=	"San Marino" ;else
+if (CC == 668	)	MsgId_1.Country	=	"São Tomé and Príncipe" ;else
+if (CC == 403	)	MsgId_1.Country	=	"Saudi Arabia";else
+if (CC == 663	)	MsgId_1.Country	=	"Senegal" ;else
+if (CC == 279	)	MsgId_1.Country	=	"Serbia" ;else
+if (CC == 664	)	MsgId_1.Country	=	"Seychelles" ;else
+if (CC == 667	)	MsgId_1.Country	=	"Sierra Leone" ;else
+if (CC == 563|| CC== 564|| CC== 565|| CC== 566 	)	MsgId_1.Country	=	"Singapore" ;else
+if (CC == 306	)	MsgId_1.Country	=	"Sint Maarten" ;else
+if (CC == 267	)	MsgId_1.Country	=	"Slovakia" ;else
+if (CC == 278	)	MsgId_1.Country	=	"Slovenia"  ;else
+if (CC == 557	)	MsgId_1.Country	=	"Solomon Islands" ;else
+if (CC == 666	)	MsgId_1.Country	=	"Somalia" ;else
+if (CC == 601	)	MsgId_1.Country	=	"South Africa" ;else
+if (CC == 224|| CC== 225 	)	MsgId_1.Country	=	"Spain" ;else
+if (CC == 417	)	MsgId_1.Country	=	"Sri Lanka" ;else
+if (CC == 638	)	MsgId_1.Country	=	"South Sudan" ;else
+if (CC == 662	)	MsgId_1.Country	=	"Sudan"  ;else
+if (CC == 765	)	MsgId_1.Country	=	"Suriname"  ;else
+if (CC == 669	)	MsgId_1.Country	=	"Swaziland" ;else
+if (CC == 265|| CC== 266 	)	MsgId_1.Country	=	"Sweden" ;else
+if (CC == 269	)	MsgId_1.Country	=	"Switzerland"  ;else
+if (CC == 468	)	MsgId_1.Country	=	"Syrian" ;else
+if (CC == 416	)	MsgId_1.Country	=	"Taiwan"  ;else
+if (CC == 472	)	MsgId_1.Country	=	"Tajikistan"  ;else
+if (CC == 674|| CC== 677 	)	MsgId_1.Country	=	"Tanzania" ;else
+if (CC == 567	)	MsgId_1.Country	=	"Thailand" ;else
+if (CC == 671	)	MsgId_1.Country	=	"Togolese"  ;else
+if (CC == 570	)	MsgId_1.Country	=	"Tonga" ;else
+if (CC == 362	)	MsgId_1.Country	=	"Trinidad" ;else
+if (CC == 672	)	MsgId_1.Country	=	"Tunisia" ;else
+if (CC == 271	)	MsgId_1.Country	=	"Turkey" ;else
+if (CC == 434	)	MsgId_1.Country	=	"Turkmenistan" ;else
+if (CC == 364	)	MsgId_1.Country	=	"Turks and Caicos" ;else
+if (CC == 572	)	MsgId_1.Country	=	"Tuvalu" ;else
+if (CC == 675	)	MsgId_1.Country	=	"Uganda";else
+if (CC == 272	)	MsgId_1.Country	=	"Ukraine" ;else
+if (CC == 470 || CC== 471 	)	MsgId_1.Country	= "Arab Emirates" ;else
+if (CC == 232 || CC== 233|| CC== 234|| CC== 235 	)	MsgId_1.Country	=	"Great Britain";else
+if (CC == 379	)	MsgId_1.Country	=	 "Virgin Islands" ;else
+if (CC == 338 || CC== 366|| CC== 367|| CC== 368|| CC== 369 	)	MsgId_1.Country	= "America" ;else
+if (CC == 770	)	MsgId_1.Country	=	"Uruguay";else
+if (CC == 437	)	MsgId_1.Country	=	"Uzbekistan" ;else
+if (CC == 576 || CC== 577 	)	MsgId_1.Country	=	"Vanuatu";else
+if (CC == 208	)	MsgId_1.Country	=	"Vatican";else
+if (CC == 775	)	MsgId_1.Country	=	"Venezuela" ;else
+if (CC == 574	)	MsgId_1.Country	=	"Vietnam" ;else
+if (CC == 578	)	MsgId_1.Country	=	"Wallis";else
+if (CC == 473 || CC== 475 )	MsgId_1.Country	=	"Yemen" ;else
+if (CC == 678	)	MsgId_1.Country	=	"Zambia";else
+if (CC == 679	)	MsgId_1.Country	=	"Zimbabwe"; else MsgId_1.Country	=	"--";}
+
+
+
+
+// #####################################################
+// #                                                   #
+// #             Proceeding with Show-Off              #
+// #                                                   #
+// #####################################################
+
+cout << "Mesage Provider\t: " 	<< TalkerID << endl;
+cout << "Mesage Type \t: " 		<< dec << MsgType << endl;
+cout << "MMSI Nr\t\t: "			<< MsgId_1.MMSI << endl;
+cout << "Country\t\t: " 		<< MsgId_1.Country << endl;						//
+//cout << "Nav Stat\t: " 		<< MsgId_1.NavStatus<< endl;
+cout << "Speed\t\t: "	 		<< MsgId_1.Spd<< endl;							//
+cout << "Longtitude\t: " 		<< MsgId_1.lastlong<< endl;						//
+cout << "Latitude\t: " 			<< MsgId_1.lastlat<< endl;						//
+cout << "Heading\t\t: "	 		<< MsgId_1.GHeading<< endl;						// Course Over Ground
+cout << "True Heading\t: "		<< MsgId_1.THeading<< endl;						// True Heading
+cout << endl << endl;
+
+return 0;
+}
+
+int main(){
+
+ln="!AIVDM,1,1,,A,33c:Bh000nPLFwHNUru8V77L010@,0*21";
+GetTheShitDone(ln);
+/*
+ifstream fin;
+fin.open("data.txt");
+ if (fin.fail())
+ {
+	 cout << "cant open the file" << endl;
+	 exit(1);
+ }
+
+ while (!fin.eof()){
+getline(fin,ln);
+cout << ln << endl;
+GetTheShitDone(ln);
+cout << endl << endl << endl;
+ }
+*/
+return 0;
+}
