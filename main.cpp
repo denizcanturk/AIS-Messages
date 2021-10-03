@@ -13,9 +13,7 @@
 #define TALKERID "AI"
 
 const int HEADER_POSITION=0;
-const int HAS_SENTENCES_POSITION=1;
 const int MESSAGE_NUMBER_POSITION=2;
-const int MESSAGE_ID_POSITION=3;
 const int RADIO_CHANNEL_POSITION=4;
 const int PAYLOAD_POSITION=5;
 const int AIS_CHAR_BIT_LEN=6;
@@ -36,27 +34,37 @@ int bitCnt=0;
 std::vector<std::string> aisVec;
 std::map<long, decltype(aisVec)> aisMap;
 
+
+
+std::vector<unsigned long> mmsiVec;
+std::map<long, decltype(mmsiVec)> referenceMap;
+
+
 /// @todo : gitHub version control function will be tested...
 
-
+unsigned long temp_reference=0;
+unsigned long temp_MMSI=0;
 struct NMEA{
-char  MessageType;
-unsigned long	MMSI;
-std::string     Environment;
-double			Speed;
-long			Longtitude;
-long			Latitude;
-float           radianLat;
-float           radianLong;
-unsigned int	Altitude;
-unsigned int    timeStamp;
-double			GHeading;
-double			THeading;
-char            Channel;
-std::string		CallSign;
-std::string 	ShipName;
-std::string		Country;
+    char  MessageType;
+    unsigned long   referenceNumber;
+    unsigned long	MMSI;
+    std::string     Environment;
+    double			Speed;
+    long			Longtitude;
+    long			Latitude;
+    float           radianLat;
+    float           radianLong;
+    unsigned int	Altitude;
+    unsigned int    timeStamp;
+    double			GHeading;
+    double			THeading;
+    char            Channel;
+    std::string		CallSign;
+    std::string 	ShipName;
+    std::string		Country;
 }decodedPayload;
+
+//--------------------------------------------------------------------------------
 
 std::string ConvertToLongtitude(long longtitude){
     std::ostringstream returnVal;
@@ -68,25 +76,27 @@ std::string ConvertToLongtitude(long longtitude){
     }
 
     double long_ddd = (int) (longtitude / 600000);
-    long_ddd += (double) (longtitude - (long_ddd * 600000)) / 600000.0;
+    //  long_ddd += (double) (longtitude - (long_ddd * 600000)) / 600000.0;
     long_ddd = (short) (longtitude / 600000);
-    double long_min = abs((longtitude - (long_ddd * 600000))) / 10000.0;
+    double long_min = std::abs((longtitude - (long_ddd * 600000))) / 10000.0;
 
     char v;
-	if (long_ddd>0)
-		v='E';
-	else
-		v='W';
+    if (long_ddd>0)
+        v='E';
+    else
+        v='W';
 
 
     returnVal << long_ddd << " " << long_min << " " << v;
 
     return returnVal.str();
- }
+}
+
+//--------------------------------------------------------------------------------
 
 std::string ConvertToLatitude(long latitude){
-std::ostringstream returnVal;
-	if( latitude & 0x4000000 )
+    std::ostringstream returnVal;
+    if( latitude & 0x4000000 )
     {
         latitude = 0x8000000 - latitude;
         latitude *= -1;
@@ -94,24 +104,27 @@ std::ostringstream returnVal;
 
 
     double lat_dd = (int) (latitude / 600000);
-	lat_dd += (double) (latitude - (lat_dd * 600000)) / 600000.0;
+    //   lat_dd += (double) (latitude - (lat_dd * 600000)) / 600000.0;
 
-	lat_dd = (short) (latitude / 600000);
-    double lat_min = abs((latitude - (lat_dd * 600000))) / 10000.0;
+    lat_dd = (short) (latitude / 600000);
+    double lat_min = std::abs((latitude - (lat_dd * 600000))) / 10000.0;
 
     char v;
-	if (lat_dd>0)
-		v='N';
-	else
-		v='S';
+    if (lat_dd>0)
+        v='N';
+    else
+        v='S';
 
     returnVal << lat_dd << " " << lat_min << " " << v;
 
     return  returnVal.str();
 }
 
+//--------------------------------------------------------------------------------
+
 void printStruct(const struct NMEA* decodedPayload){
-    std::cout << "MsgType  : "  << decodedPayload->MessageType   << std::endl
+    std::cout << "Referece : " << decodedPayload->referenceNumber<< std::endl
+              << "MsgType  : "  << decodedPayload->MessageType   << std::endl
               << "MMSI     : "  << decodedPayload->MMSI          << std::endl
               << "Country  : "  << decodedPayload->Country       << std::endl
               << "ShipName : "  << decodedPayload->ShipName      << std::endl
@@ -131,6 +144,9 @@ void printStruct(const struct NMEA* decodedPayload){
 
 }
 
+
+//--------------------------------------------------------------------------------
+
 void initializeContainers(struct NMEA* decodedPayload,
                           std::vector<std::string>* fragmentedMessage,
                           std::bitset<SHRT_MSG_BIT_LEN>* bitContainerShort,
@@ -142,6 +158,7 @@ void initializeContainers(struct NMEA* decodedPayload,
     bitContainerShort->set(0);
     SixBitContainer->set(0);
 
+    decodedPayload->referenceNumber = 0;
     decodedPayload->MessageType  = 0;
     decodedPayload->MMSI         = 0;
     decodedPayload->Environment  = "";
@@ -160,6 +177,8 @@ void initializeContainers(struct NMEA* decodedPayload,
     decodedPayload->Channel      = '-';
 }
 
+//--------------------------------------------------------------------------------
+
 std::string expandDoubleCommas(std::string message){
 
     std::string temp = "";
@@ -176,12 +195,14 @@ std::string expandDoubleCommas(std::string message){
     return temp;
 }
 
+//--------------------------------------------------------------------------------
+
 void fragmentMessage(std::string* sentence){
     std::string streamedMsg= expandDoubleCommas(*sentence);
     std::string part ="";
     int len= streamedMsg.length();
 
-        for (int j = 0, k = 0; j < len; j++) {
+    for (int j = 0, k = 0; j < len; j++) {
         if (streamedMsg[j] == ',') {
             std::string ch = streamedMsg.substr(k, j - k);
             k = j+1;
@@ -193,9 +214,9 @@ void fragmentMessage(std::string* sentence){
         }
     }
     ///DEBUGGING PURPOSES... WILL BE REMOVED LATER ON...
-   //std::vector<std::string>::iterator it= fragmentedMessage.begin();
-   // for (; it !=fragmentedMessage.end(); it++)
-   //     std::cout << *it << std::endl;
+    //std::vector<std::string>::iterator it= fragmentedMessage.begin();
+    // for (; it !=fragmentedMessage.end(); it++)
+    //     std::cout << *it << std::endl;
 }
 
 bool isRelevant(char* messageIndicator){
@@ -214,15 +235,15 @@ bool isRelevant(char* messageIndicator){
     else
         return false;
 }
-
+//--------------------------------------------------------------------------------
 bool isChecksumValid(std::string* NMEASentence){
 
-	std::istringstream iSentence(*NMEASentence);
-	std::string partToCalculate;
-	std::string received_checksum;
+    std::istringstream iSentence(*NMEASentence);
+    std::string partToCalculate;
+    std::string received_checksum;
 
-	getline(iSentence, partToCalculate, '*');
-	getline(iSentence, received_checksum);
+    getline(iSentence, partToCalculate, '*');
+    getline(iSentence, received_checksum);
 
     int len = partToCalculate.length();
 
@@ -235,24 +256,24 @@ bool isChecksumValid(std::string* NMEASentence){
         }
     }
 
-	std::ostringstream calulatedStream;
-	calulatedStream << std::hex <<(int)check;
-	std::string cSumResult = calulatedStream.str();
+    std::ostringstream calulatedStream;
+    calulatedStream << std::hex <<(int)check;
+    std::string cSumResult = calulatedStream.str();
 
     for (unsigned int i = 0; i < received_checksum.length()-1 ; i++)
-       if(!islower(received_checksum[i]))
+        if(!islower(received_checksum[i]))
             received_checksum[i] = tolower(received_checksum[i]);
 
     if (cSumResult.compare(received_checksum))
     {
-		std::cout << "Message  : [ " GREEN "VALID" RST " ]" << std::endl;
-		return true;
-	}
-	std::cout << "Message  : [ " RED "NOT VALID" RST " ]" << std::endl;
+        std::cout << "Message  : [ " GREEN "VALID" RST " ]" << std::endl;
+        return true;
+    }
+    std::cout << "Message  : [ " RED "NOT VALID" RST " ]" << std::endl;
     return false;
 
 }
-
+//--------------------------------------------------------------------------------
 unsigned char convertAisCharToSixBitChar(char *ch){
     unsigned char asciiValue = (unsigned char)*ch - 48;
     if ( asciiValue > 40)
@@ -260,7 +281,7 @@ unsigned char convertAisCharToSixBitChar(char *ch){
 
     return asciiValue;
 }
-
+//--------------------------------------------------------------------------------
 void binarizePayload(char* messageIndicator){
     std::string payLoad = fragmentedMessage[PAYLOAD_POSITION];
 
@@ -300,11 +321,13 @@ void binarizePayload(char* messageIndicator){
     }
 }
 
-unsigned int convertBitsToDecimal(int bitPosition, int NumOfBits, char messageIndicator){
-int result = 0;
+//--------------------------------------------------------------------------------
+
+unsigned int convertMMSIBitsForRFN(int bitPosition, int NumOfBits, char messageIndicator){
+    int result = 0;
     if (messageIndicator == '5')
     {
-       	for (int j = 0; j<=NumOfBits ; j++)
+        for (int j = 0; j<=NumOfBits ; j++)
         {
             result *= 2;
             result += bitContainerLong[bitPosition];
@@ -323,20 +346,154 @@ int result = 0;
     return result;
 }
 
-char ais2ascii(char value){
-     value = value & 0x3F;
-     if( value < 0x20 )
-         return value + 0x40;
-     else
-         return value;
+//--------------------------------------------------------------------------------
+
+
+void seperateMMSIs(const struct NMEA* decodedMessage, unsigned long temp_reference){
+
+    long mms = decodedMessage->MMSI;
+    if (mms != 0)
+    {
+        referenceMap[temp_reference].push_back(mms);
+        std::cout << mms << " Added to MMSI mapper... " << std::endl;
+    }
 }
+//--------------------------------------------------------------------------------
+
+
+void printMMSI_Reference(const struct NMEA* decodedPayload){
+    std::cout << "Referece : " << decodedPayload->referenceNumber<< std::endl
+              << "MMSI     : "  << decodedPayload->MMSI          << std::endl;
+
+    if ((decodedPayload->referenceNumber == temp_reference) && (decodedPayload->MMSI != temp_MMSI))
+    {
+        std::cout << RED << " SAME REF - DIFFERENT MMSI " << RST << std::endl;
+    }
+
+    temp_MMSI = decodedPayload->MMSI;
+    temp_reference = decodedPayload->referenceNumber;
+    seperateMMSIs(decodedPayload, temp_reference);
+
+}
+
+//--------------------------------------------------------------------------------
+
+void printSeperatedReferences(){
+    std::string mmsiFile = "MMSI_Ref.txt";
+    std::ofstream destinationFile;
+
+    for (auto& it: referenceMap)
+    {
+        //std::string msgFile = std::to_string(it.first);
+
+        std::ofstream destinationFile(mmsiFile.c_str(),std::ios::out | std::ios::app);
+
+
+        int len = it.second.size();
+        destinationFile << it.first << std::endl;
+        for (int i = 0; i < len; i++)
+        {
+            std::cout << i << "\t" << "Ref / MMSI : " << it.first << " -> " <<  it.second[i] << std::endl;
+            destinationFile << "\t" << it.second[i] << std::endl;
+        }
+
+        destinationFile << "----------------------" << std::endl;
+
+        //usleep(1000);
+    }
+    destinationFile.close();
+}
+
+
+//--------------------------------------------------------------------------------
+/*
+ * Bu fonksiyonun amacı elimizdeki MMSI numaralarından pairingFunction özelliği ile
+ * yeni bir reference numarası hesaplanmasını sağlamaktır...
+*/
+unsigned short pairingFunction(unsigned long MMSI)
+{
+    unsigned int num1 = MMSI % 100000;
+
+    unsigned int num2 = MMSI/100000;
+
+    unsigned short uniqueNum = (unsigned short)(((num1 + num2)*(num1+num2 + 1) + num2)/2);
+
+    return uniqueNum;// % 100000;
+}
+
+//--------------------------------------------------------------------------------
+
+void validateMapper()
+{
+    unsigned long temp=0;
+    int count =0;
+    for (auto& it: referenceMap)
+    {
+        //std::string msgFile = std::to_string(it.first);
+
+       int len = it.second.size();
+
+        for (int i = 0; i < len-1; i++)
+        {
+            for (int j = i+1 ; j < len; j++)
+            {
+               if ((it.second[i] != it.second[j]) && (it.second[i] != temp))
+               {
+
+                  std::cout << it.first << " için " << "multıple MMSI recorded : " << it.second[j] << " / " << temp<< std::endl;
+                  i = j;
+                  count++;
+                  //getchar();
+                  temp = it.second[j];
+               }
+            }
+        }
+    }
+    std::cout << "Toplam Çakışan Sayısı : " << count << std::endl;
+}
+//--------------------------------------------------------------------------------
+
+unsigned int convertBitsToDecimal(int bitPosition, int NumOfBits, char messageIndicator){
+    int result = 0;
+    if (messageIndicator == '5')
+    {
+        for (int j = 0; j<=NumOfBits ; j++)
+        {
+            result *= 2;
+            result += bitContainerLong[bitPosition];
+            bitPosition--;
+        }
+    }
+    else
+    {
+        for (int j = 0; j<=NumOfBits ; j++)
+        {
+            result *= 2;
+            result += bitContainerShort[bitPosition];
+            bitPosition--;
+        }
+    }
+    return result;
+}
+
+//--------------------------------------------------------------------------------
+
+char ais2ascii(char value){
+    value = value & 0x3F;
+    if( value < 0x20 )
+        return value + 0x40;
+    else
+        return value;
+}
+
+//--------------------------------------------------------------------------------
 
 std::string convertBitsToString(int bitPosition,
                                 int NumOfBits,
                                 char messageIndicator){
-unsigned int convertedVal=0;
-std::string returnVal;
-std::ostringstream streamedText;
+    unsigned int convertedVal=0;
+    std::string returnVal;
+    std::ostringstream streamedText;
 
     for (int i = 0; i<NumOfBits ; i= i + AIS_CHAR_BIT_LEN)
     {
@@ -355,9 +512,11 @@ std::ostringstream streamedText;
             streamedText<<ais2ascii(convertedVal);
         convertedVal = 0;
     }
-returnVal = streamedText.str();
+    returnVal = streamedText.str();
     return returnVal;
 }
+
+//--------------------------------------------------------------------------------
 
 std::string GetTalkerID(std::string TalkerID){
     if (TalkerID == "AB") TalkerID="NMEA 4.0 Base AIS station";
@@ -373,6 +532,8 @@ std::string GetTalkerID(std::string TalkerID){
 
     return TalkerID;
 }
+
+//--------------------------------------------------------------------------------
 
 std::string GetCountryName(short int countryCode){
     std::string countryName="";
@@ -911,12 +1072,16 @@ std::string GetCountryName(short int countryCode){
 
 }
 
+//--------------------------------------------------------------------------------
+
 void fillStruct(struct NMEA* decodedPayload,
                 const char *messageIndicator){
 
     if (*messageIndicator == '5')
     {
+
         decodedPayload->MMSI            = convertBitsToDecimal(375, 29 , *messageIndicator);
+        decodedPayload->referenceNumber = pairingFunction(decodedPayload->MMSI);
         decodedPayload->CallSign        = convertBitsToString(313 , 41 , *messageIndicator);
         decodedPayload->ShipName        = convertBitsToString(271 , 119, *messageIndicator);
         decodedPayload->Country         = GetCountryName(decodedPayload->MMSI/1000000);
@@ -926,7 +1091,9 @@ void fillStruct(struct NMEA* decodedPayload,
 
         if (*messageIndicator == '9')
         {
+
             decodedPayload->MMSI        = convertBitsToDecimal(159, 29, *messageIndicator);
+            decodedPayload->referenceNumber = pairingFunction(decodedPayload->MMSI);
             decodedPayload->Environment = "Air";
             decodedPayload->Country     = GetCountryName(decodedPayload->MMSI/1000000);
             decodedPayload->Altitude    = convertBitsToDecimal(129, 11, *messageIndicator)/3.28;
@@ -941,6 +1108,7 @@ void fillStruct(struct NMEA* decodedPayload,
         else
         {
             decodedPayload->MMSI        = convertBitsToDecimal(159, 29, *messageIndicator);
+            decodedPayload->referenceNumber = pairingFunction(decodedPayload->MMSI);
             decodedPayload->Environment = "Surface";
             decodedPayload->Speed       = convertBitsToDecimal(117, 9 , *messageIndicator)/10;
             decodedPayload->Longtitude  = convertBitsToDecimal(106, 27, *messageIndicator);
@@ -959,13 +1127,16 @@ void fillStruct(struct NMEA* decodedPayload,
     decodedPayload->Channel         = fragmentedMessage[RADIO_CHANNEL_POSITION][0];
 }
 
+//--------------------------------------------------------------------------------
+
 bool is_fileexists(const std::string filename) {
     std::ifstream ifile(filename);
     return (bool)ifile;
 }
 
-const struct NMEA aisWrapper(struct NMEA* decodedPayload,
-                             std::vector<std::string>* fragmentedMessage,
+//--------------------------------------------------------------------------------
+
+const struct NMEA aisWrapper(std::vector<std::string>* fragmentedMessage,
                              std::bitset<SHRT_MSG_BIT_LEN>* bitContainerShort,
                              std::bitset<LONG_MSG_BIT_LEN>* bitContainerLong,
                              std::bitset<AIS_CHAR_BIT_LEN>* SixBitContainer,
@@ -996,6 +1167,9 @@ const struct NMEA aisWrapper(struct NMEA* decodedPayload,
 ///
 /// This function seperates messages by MMSI Number
 ///
+
+//--------------------------------------------------------------------------------
+
 void seperateSentences(const struct NMEA* decodedMessage,
                        const std::string* sentence){
 
@@ -1010,8 +1184,11 @@ void seperateSentences(const struct NMEA* decodedMessage,
 ///This Function writes seperated MMSI messages to files
 ///And file names are given by the MMSI Number...
 ///
+
+//--------------------------------------------------------------------------------
+
 void printSeperatedLines(){
-std::ofstream destinationFile;
+    std::ofstream destinationFile;
     for (auto& it: aisMap)
     {
         std::string msgFile = std::to_string(it.first);
@@ -1028,6 +1205,8 @@ std::ofstream destinationFile;
         usleep(80000);
     }
 }
+
+//--------------------------------------------------------------------------------
 
 int main(int argc, char *argv[]){
 
@@ -1054,22 +1233,24 @@ int main(int argc, char *argv[]){
         NMEASentence = fileAd;
         getline(sourceFile, fileAd);
 
-        decodedMessage = aisWrapper(&decodedPayload,
-                                    &fragmentedMessage,
+        decodedMessage = aisWrapper(&fragmentedMessage,
                                     &bitContainerShort,
                                     &bitContainerLong,
                                     &SixBitContainer,
                                     &messageIndicator,
                                     &fileAd);
         if (decodedMessage.MMSI > 0){
-            printStruct(&decodedMessage);
+
+            //printStruct(&decodedMessage);
+            printMMSI_Reference(&decodedMessage);
         }
-        usleep(600000);
+       // usleep(1000);
+        std::cout << std::endl;
     }
+    std::cout << RED << "PRINTING SEPERATED MMSI and REFERENCES" << std::endl << std::endl;
+    printSeperatedReferences();
+    std::cout << "Mapper Validation in progress" << std::endl;
+    validateMapper();
 
     return 0;
 }
-
-
-
-
